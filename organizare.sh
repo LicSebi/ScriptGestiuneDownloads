@@ -1,16 +1,36 @@
 #!/bin/bash
 
-DOWNLOADS_DIR="Downloads"
-MEDIA_DIR="Media"
+cd "$(dirname "$0")" || exit 1
 
-API_KEY="6c767dfb"
+CONFIG_FILE="config.cfg"
 
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "Fisierul de configurare $CONFIG_FILE nu a fost gasit"
+    exit 1
+fi
+
+LOG_FILE="$MEDIA_DIR/raport_organizare.log"
+
+mkdir -p "$MEDIA_DIR"
+
+declare -i count_filme=0
+declare -i count_seriale=0
+declare -i count_muzica=0
+declare -i count_restul=0
+
+scrie_log() {
+	local mesaj="$1"
+	local data_ora=$(date "+%Y-%m-%d %H:%M:%S")
+	echo "[$data_ora] $mesaj" >> "$LOG_FILE"
+}
 
 pregatire_nume_film() {
 	local nume="$1"
 	
 	#scapam de punct si underscore
-	local clean=$(echo "$nume" | tr '._' '  ')
+	local clean=$(echo "$nume" | tr '._' ' ')
 
 	#pastram doar numele, fara ani, rezolutii, formate etc
 	clean=$(echo "$clean" | sed -E 's/([0-9]{4}|1080p|720p|2160p|4k|bluray|brrip|web-dl|hdtv|x264|x265|hevc|yts).*/ /I')
@@ -25,14 +45,12 @@ pregatire_nume_film() {
 proceseaza_film() {
 	local file="$1"
 	local filename=$(basename "$file")
-	   	 
+       
 	#xtensia fisierului original
 	local extensie=$(echo "$filename" | rev | cut -d'.' -f1 | rev | tr '[:upper:]' '[:lower:]')
     
 	local nume_fara_extensie=$(echo "$filename" | rev | cut -d'.' -f2- | rev)
 	local nume_curat=$(pregatire_nume_film "$nume_fara_extensie")
-    
-	echo "debug intergoare API $nume_curat"
     
 	#trimitem cerere api
 	local raspuns_json=$(curl -s "http://www.omdbapi.com/?apikey=${API_KEY}&t=$(echo "$nume_curat" | jq -sRr @uri)")
@@ -53,22 +71,20 @@ proceseaza_film() {
 		#"Titlu (An).extensie"
 		local noul_nume="${titlu_oficial} (${an}).${extensie}"
         
-		echo "gasit: $titlu_oficial ($an) | Gen principal: $gen_principal"
-		echo "mutare in: $dest_dir/$noul_nume"
-        
 		mv "$file" "$dest_dir/$noul_nume"
+		scrie_log "FILM: S-a mutat '$filename' -> '$dest_dir/$noul_nume'"
+		((count_filme++))
         
 	else
     
-		echo "!!! filmul '$nume_curat' nu a fost gasit"
 		#mutam filmul intr un folder de erori
 		local dest_dir_necunoscut="$MEDIA_DIR/Movies/Uncategorized"
 		mkdir -p "$dest_dir_necunoscut"
 		mv "$file" "$dest_dir_necunoscut/"
+		scrie_log "FILM (NEGĂSIT): S-a mutat '$filename' -> '$dest_dir_necunoscut/'"
+		((count_filme++))
 	fi
 }
-
-
 
 
 proceseaza_serial() {
@@ -77,7 +93,7 @@ proceseaza_serial() {
 		
 	local extensie=$(echo "$filename" | rev | cut -d'.' -f1 | rev | tr '[:upper:]' '[:lower:]')
 		
-	local nume_curat=$(echo "$filename" | tr '._' '  ')
+	local nume_curat=$(echo "$filename" | tr '._' ' ')
 
 	# Variabile pentru a stoca rezultatele extrase
 	local nume=""
@@ -102,7 +118,7 @@ proceseaza_serial() {
 		sezon=$(echo "${BASH_REMATCH[2]}" | xargs)
 		episod=$(echo "${BASH_REMATCH[3]}" | xargs)
 
-	# TIPARUL 4: SSEE
+	# TIPARUL 4: SEE
 	# spatiu urmat de o cifra, dupa doua cifre, dupa spațiu
 	elif [[ "$nume_curat" =~ ^(.*)[[:space:]]([0-9])([0-9]{2})[[:space:]](.*)$ ]]; then
 		nume=$(echo "${BASH_REMATCH[1]}" | xargs)
@@ -128,17 +144,18 @@ proceseaza_serial() {
 
 		# "Nume Serial - SXXEYY.extensie"
 		local noul_nume="${nume} - S${sezon_padded}E${episod_padded}.${extensie}"
-
-		echo "debug serial gasit $nume | Sezon $sezon_padded | Episod $episod_padded"
 		
 		mv "$file" "$dest_dir/$noul_nume"
-		    
+		scrie_log "SERIAL: S-a mutat '$filename' -> '$dest_dir/$noul_nume'"
+		((count_seriale++))
+        
 	else
 		
 		local dest_dir_uncategorized="$MEDIA_DIR/Series/Uncategorized"
 		mkdir -p "$dest_dir_uncategorized"
 		mv "$file" "$dest_dir_uncategorized/"
-		echo "debug pus in Uncategorized: $filename"
+		scrie_log "SERIAL (NECATEGORIZAT): S-a mutat '$filename' -> '$dest_dir_uncategorized/'"
+		((count_seriale++))
 	fi
 }
 
@@ -148,7 +165,7 @@ proceseaza_muzica() {
 	
 	local extensie=$(echo "$filename" | rev | cut -d'.' -f1 | rev | tr '[:upper:]' '[:lower:]')
 	local nume_fara_ext=$(echo "$filename" | rev | cut -d'.' -f2- | rev)
-	local nume_curat=$(echo "$nume_fara_ext" | tr '._' '  ' | xargs)
+	local nume_curat=$(echo "$nume_fara_ext" | tr '._' ' ' | xargs)
 
 	local dest_dir=""
 	local noul_nume=""
@@ -162,19 +179,19 @@ proceseaza_muzica() {
 		dest_dir="$MEDIA_DIR/Music/$artist"
 		noul_nume="${titlu}.${extensie}"
 		
-		echo "debug gasit muzica $artist - $titlu"
+		scrie_log "MUZICĂ: S-a mutat '$filename' -> '$dest_dir/$noul_nume'"
 	else
 		# fallback -> Unsure
 		dest_dir="$MEDIA_DIR/Music/Unsure"
 		noul_nume="${nume_curat}.${extensie}"
 		
-		echo "debug nerecunoscut $dest_dir/$noul_nume"
+		scrie_log "MUZICĂ (UNSURE): S-a mutat '$filename' -> '$dest_dir/$noul_nume'"
 	fi
 
 	mkdir -p "$dest_dir"
 	mv "$file" "$dest_dir/$noul_nume"
+	((count_muzica++))
 }
-
 
 
 proceseaza_restul() {
@@ -184,10 +201,9 @@ proceseaza_restul() {
 
 	if [ -x "$file" ]; #verificam executabil
 		then
-
 		mv "$file" "$MEDIA_DIR/Executables/"
-#		echo "debug executabil $filename"
-
+		scrie_log "EXECUTABIL (PERMISIUNE DE EXECUȚIE): S-a mutat '$filename' -> '$MEDIA_DIR/Executables/'"
+		((count_restul++))
 		return
 	fi
 
@@ -196,24 +212,26 @@ proceseaza_restul() {
 	
 		pdf|odt|doc|docx|xls|xlsx|txt|epub)  # !!! adaug extensii pe parcurs daca e necesar !!!
 			mv "$file" "$MEDIA_DIR/Documents/"
-#			echo "debug document $filename"
+			scrie_log "DOCUMENT: S-a mutat '$filename' -> '$MEDIA_DIR/Documents/'"
+			((count_restul++))
 		;;
 
 		exe|msi|deb|dmg|sh)
 			mv "$file" "$MEDIA_DIR/Executables/"
-#			echo "debug executabil (fara drept de executie) $filename"
+			scrie_log "EXECUTABIL (FĂRĂ PERMISIUNE): S-a mutat '$filename' -> '$MEDIA_DIR/Executables/'"
+			((count_restul++))
 		;;
 
 		*)
-#			echo "debug extensie necunoscuta $filename"
+			scrie_log "IGNORAT: Extensie necunoscută pentru fișierul '$filename'"
 		;;
 		
     esac
 }
 
-echo "start organizare"
+echo "------------------start organizare---------------------------"
 
-find "$DOWNLOADS_DIR" -type f | while read -r file; do
+while read -r file; do
     
 	#unde se afla fisierul
 	parent_dir=$(basename "$(dirname "$file")")
@@ -221,13 +239,11 @@ find "$DOWNLOADS_DIR" -type f | while read -r file; do
 	case "$parent_dir" in
 	
 		"Movies")
-			#proceseaza_film "$file"
-			echo "debug film procesat"
+			proceseaza_film "$file"
 			;;
 			
 		"Series")
-            #proceseaza_serial "$file"
-            echo "debug serial procesat"
+            proceseaza_serial "$file"
             ;;
 
 		"Music")
@@ -235,11 +251,16 @@ find "$DOWNLOADS_DIR" -type f | while read -r file; do
 			;;
 
 		"Downloads")
-			#proceseaza_restul "$file"
-			echo "debug altele procesat"
+			proceseaza_restul "$file"
 			;;
 	esac
-done
+done < <(find "$DOWNLOADS_DIR" -type f)
 
-echo "final organizare"
+echo "------------------final organizare---------------------------"
+echo "Filme organizate:    $count_filme"
+echo "Seriale organizate:  $count_seriale"
+echo "Melodii organizate:  $count_muzica"
+echo "Documente/Executabile: $count_restul"
+echo "Jurnal detaliat: $LOG_FILE"
 
+scrie_log "Organizare finalizata: Filme [$count_filme], Seriale [$count_seriale], Muzica [$count_muzica], Documente/Executabile [$count_restul]."

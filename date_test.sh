@@ -1,9 +1,6 @@
 #!/bin/bash
 
-echo "creare directoare"
 mkdir -p Downloads/Movies Downloads/Series Downloads/Music Media/Movies Media/Series Media/Music Media/Documents Media/Executables
-
-echo "creare fisiere test"
 
 # filme
 touch "Downloads/Movies/The.Matrix.1999.1080p.BluRay.x264.mkv"
@@ -35,7 +32,7 @@ touch "Downloads/note_laborator.txt"
 touch "Downloads/PacketTracer_setup_v8.exe"
 touch "Downloads/git-installer-2.45.msi"
 touch "Downloads/wireshark-common_4.2.5_amd64.deb"
-touch "Downloads/backup_system.sh"
 touch "Downloads/discord-setup.dmg"
+touch "Downloads/backup_system.sh"
+chmod +x "Downloads/backup_system.sh"
 
-echo "date test generate"
